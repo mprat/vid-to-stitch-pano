@@ -30,3 +30,6 @@
 # video-and-image-specific files
 *.png
 *.mp4
+
+# sublime 
+*.sublime-workspace
