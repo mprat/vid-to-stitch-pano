@@ -26,3 +26,7 @@
 *.exe
 *.out
 *.app
+
+# video-and-image-specific files
+*.png
+*.mp4
