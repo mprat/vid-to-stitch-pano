@@ -70,7 +70,13 @@ Mat get_transformation(Mat img_1, Mat img_2){
 	img_1_forhomography.push_back( keypoints_1[ good_matches[i].trainIdx ].pt );
 	}
 
-	Mat transform = findHomography(img_2_forhomography, img_1_forhomography, CV_RANSAC);
+	printf("-- Number of pts for img1 : %ld \n", img_1_forhomography.size() );
+	printf("-- Number of pts for img2 : %ld \n", img_2_forhomography.size() );
+
+	Mat transform = Mat::eye(3, 3, CV_32F);
+	if (img_1_forhomography.size() >= 4 && img_2_forhomography.size() >= 4){
+		transform = findHomography(img_2_forhomography, img_1_forhomography, CV_RANSAC);
+	}
 	return transform;
 }
 
@@ -117,7 +123,7 @@ int main(int, char**)
 			drawKeypoints(frame, keypoints_1, frame, Scalar::all(-1), DrawMatchesFlags::DEFAULT );
         }
 
-        imshow("w", frame);
+        // imshow("w", frame);
         waitKey(20);
 	}
 
