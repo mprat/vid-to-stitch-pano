@@ -6,13 +6,53 @@
 using namespace cv;
 using namespace std;
 
-std::vector<KeyPoint> get_keypoints(Mat img){
+std::vector<KeyPoint> get_keypoints(Mat &img){
 	int minHessian = 400;
 	SurfFeatureDetector detector(minHessian);
 	std::vector<KeyPoint> keypoints_1;
 	detector.detect(img, keypoints_1);
 	return keypoints_1;
 } 
+
+// takes in image dimensions and a transformation (homography)
+// returns an opencv Rect (x, y, width, height)
+// that represents the new bounding box size
+cv::Rect transformed_bbox(int imwidth, int imheight, Mat transform){
+	// initialize bbox
+    cv::Rect bbox;
+
+	// transform the 4 points
+    // (0, 0); (0, imheight); (imwidth, 0); (imwidth; imheight);
+
+	float test_x[] = {0, 0, (float)(imwidth), (float)(imwidth)};
+    float test_y[] = {0, (float)(imheight), 0, (float)(imheight)};
+
+    Mat test_point(3, 1, CV_32FC1);
+    
+    for (int index = 0; index < 4; ++index){
+        test_point.at<float>(0, 0) = test_x[index];
+        test_point.at<float>(0, 1) = test_y[index];
+        test_point.at<float>(0, 2) = 1.0f;
+
+        // compute the transformation
+        test_point = transform * test_point;
+
+        // homogenize the coordinate
+        test_point.at<float>(0, 0) = test_point.at<float>(0, 0) / test_point.at<float>(0, 2);
+        test_point.at<float>(0, 1) = test_point.at<float>(0, 1) / test_point.at<float>(0, 2);
+        test_point.at<float>(0, 2) = 1;
+
+        cv::Rect one_point(test_point.at<float>(0, 0), test_point.at<float>(0, 1), 0, 0);
+
+        if (index == 0){
+        	bbox = one_point;
+        } else {
+        	bbox = bbox | one_point;
+        }
+    }
+
+	return bbox;
+}
 
 Mat get_transformation(Mat img_1, Mat img_2){
 	int minHessian = 400;
@@ -73,9 +113,12 @@ Mat get_transformation(Mat img_1, Mat img_2){
 	printf("-- Number of pts for img1 : %ld \n", img_1_forhomography.size() );
 	printf("-- Number of pts for img2 : %ld \n", img_2_forhomography.size() );
 
-	Mat transform = Mat::eye(3, 3, CV_32F);
+	// findHomography (from Opencv) returns type of CV_64FC1
+	Mat transform = Mat::eye(3, 3, CV_32FC1);
 	if (img_1_forhomography.size() >= 4 && img_2_forhomography.size() >= 4){
 		transform = findHomography(img_2_forhomography, img_1_forhomography, CV_RANSAC);
+		// recast transform to CV_32FC1 type
+		transform.convertTo(transform, CV_32FC1);
 	}
 	return transform;
 }
@@ -84,7 +127,7 @@ int main(int, char**)
 {
 	VideoCapture capture("videos/VID_20150418_151108.mp4");
 	Mat frame, prev_frame;
-	Mat transform;
+	Mat transform = Mat::eye(3, 3, CV_32FC1);
 
 	double frame_width, frame_height, frame_index;
 
@@ -122,6 +165,16 @@ int main(int, char**)
 	        std::vector<KeyPoint> keypoints_1 = get_keypoints(frame);
 			drawKeypoints(frame, keypoints_1, frame, Scalar::all(-1), DrawMatchesFlags::DEFAULT );
         }
+
+        // calculate size of new image
+        cv::Rect bbox = transformed_bbox(frame.rows, frame.cols, transform);
+        if (true){
+	        printf("new bbox: %d %d %d %d \n", bbox.x, bbox.y, bbox.width, bbox.height);
+        }
+
+
+        // transform the image according to the transformation
+
 
         // imshow("w", frame);
         waitKey(20);
