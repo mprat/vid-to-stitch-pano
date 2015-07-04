@@ -128,6 +128,7 @@ int main(int, char**)
 	VideoCapture capture("videos/VID_20150418_151108.mp4");
 	Mat frame, prev_frame;
 	Mat transform = Mat::eye(3, 3, CV_32FC1);
+	float decrease_factor = 0.5;
 
 	double frame_width, frame_height, frame_index;
 
@@ -141,6 +142,8 @@ int main(int, char**)
 		cout << "frame height = " << frame_height << endl;
 	}
 
+    cv::Rect current_pano_size(0, 0, frame_width * decrease_factor, frame_height * decrease_factor);
+
 	while (capture.isOpened()){
 		frame_index = capture.get(CV_CAP_PROP_POS_FRAMES);
 		// cout << "frame index = " << frame_index << endl;
@@ -150,7 +153,8 @@ int main(int, char**)
 		capture >> frame;
 		if(frame.empty())
             break;
-        resize(frame, frame, Size(0, 0), 0.5, 0.5, INTER_LINEAR);
+        resize(frame, frame, Size(0, 0), decrease_factor, decrease_factor, INTER_LINEAR);
+
 
         // only compute the transformation when you have two frames
         // otherwise, prev_frame does not exist and there is a segfault
@@ -166,12 +170,13 @@ int main(int, char**)
 			drawKeypoints(frame, keypoints_1, frame, Scalar::all(-1), DrawMatchesFlags::DEFAULT );
         }
 
-        // calculate size of new image
-        cv::Rect bbox = transformed_bbox(frame.rows, frame.cols, transform);
+        // calculate bounding box required for next image
+        cv::Rect next_bbox = transformed_bbox(frame.cols, frame.rows, transform);
+        current_pano_size = current_pano_size | next_bbox;
         if (true){
-	        printf("new bbox: %d %d %d %d \n", bbox.x, bbox.y, bbox.width, bbox.height);
+	        printf("next_bbox: %d %d %d %d \n", next_bbox.x, next_bbox.y, next_bbox.width, next_bbox.height);
+	        printf("current_pano_size: %d %d %d %d \n", current_pano_size.x, current_pano_size.y, current_pano_size.width, current_pano_size.height);
         }
-
 
         // transform the image according to the transformation
 
