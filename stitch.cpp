@@ -6,6 +6,13 @@
 using namespace cv;
 using namespace std;
 
+#define SAVE_FILES 0
+#define NUM_FRAMES_TO_ANALYZE 50
+
+// types of blending opportunities
+#define BLEND_MEDIAN 1
+#define BLEND_PURE 2
+
 std::vector<KeyPoint> get_keypoints(Mat &img){
 	int minHessian = 400;
 	SurfFeatureDetector detector(minHessian);
@@ -78,8 +85,10 @@ Mat get_transformation(Mat img_1, Mat img_2){
 	if( dist > max_dist ) max_dist = dist;
 	}
 
-	printf("-- Max dist : %f \n", max_dist );
-	printf("-- Min dist : %f \n", min_dist );
+	if (false){
+		printf("-- Max dist : %f \n", max_dist );
+		printf("-- Min dist : %f \n", min_dist );
+	}
 
 	//-- Draw only "good" matches (i.e. whose distance is less than 3*min_dist )
 	std::vector<DMatch> good_matches;
@@ -110,8 +119,10 @@ Mat get_transformation(Mat img_1, Mat img_2){
 	img_1_forhomography.push_back( keypoints_1[ good_matches[i].trainIdx ].pt );
 	}
 
-	printf("-- Number of pts for img1 : %ld \n", img_1_forhomography.size() );
-	printf("-- Number of pts for img2 : %ld \n", img_2_forhomography.size() );
+	if (false){
+		printf("-- Number of pts for img1 : %ld \n", img_1_forhomography.size() );
+		printf("-- Number of pts for img2 : %ld \n", img_2_forhomography.size() );
+	}
 
 	// findHomography (from Opencv) returns type of CV_64FC1
 	Mat transform = Mat::eye(3, 3, CV_32FC1);
@@ -129,8 +140,18 @@ int main(int, char**)
 	Mat frame, prev_frame;
 	Mat transform = Mat::eye(3, 3, CV_32FC1);
 	float decrease_factor = 0.5;
+	int blend_type = BLEND_PURE;
 
+	// the panorama that is growing
+	Mat trans_img;
+	std::vector<Mat> frames;
+	std::vector<Mat> transformed_frames;
+
+	int index = 0;
 	double frame_width, frame_height, frame_index;
+
+	// the transformations of each image to keep track of
+	std::vector<Mat> homographies;
 
 	if(!capture.isOpened()){
 		cout << "Error reading video file" << endl;
@@ -142,11 +163,10 @@ int main(int, char**)
 		cout << "frame height = " << frame_height << endl;
 	}
 
-    cv::Rect current_pano_size(0, 0, frame_width * decrease_factor, frame_height * decrease_factor);
-
-	while (capture.isOpened()){
+	while (capture.isOpened() && index < NUM_FRAMES_TO_ANALYZE){
 		frame_index = capture.get(CV_CAP_PROP_POS_FRAMES);
 		// cout << "frame index = " << frame_index << endl;
+		index++;
 		if (frame_index > 0){
 			prev_frame = frame;
 		}
@@ -155,12 +175,25 @@ int main(int, char**)
             break;
         resize(frame, frame, Size(0, 0), decrease_factor, decrease_factor, INTER_LINEAR);
 
+        // save the frame as a file
+        if (SAVE_FILES){
+	        char buffer[200];
+	        printf("videos/img_%08d.png", index);
+	        sprintf(buffer, "videos/img_%08d.png", index);
+	        std::string filename = buffer;
+	        imwrite(filename, frame);
+        } else {
+	        // save the frame in my local memory structure
+	        frames.push_back(frame);
+        }
 
         // only compute the transformation when you have two frames
         // otherwise, prev_frame does not exist and there is a segfault
         if (frame_index > 0){
 	        transform = get_transformation(frame, prev_frame);
-	        cout << transform << endl;
+	        if (false){
+		        cout << transform << endl;
+	        }
         }
 
         // show the keypoints on a frame
@@ -170,21 +203,92 @@ int main(int, char**)
 			drawKeypoints(frame, keypoints_1, frame, Scalar::all(-1), DrawMatchesFlags::DEFAULT );
         }
 
+        homographies.push_back(transform);
+
+        // waitKey(20);
+    }
+
+    cv::Rect current_pano_size(0, 0, frame_width * decrease_factor, frame_height * decrease_factor);
+
+    for (int i = 0; i < homographies.size(); ++i)
+    {
+    	transform = homographies[i];
+
         // calculate bounding box required for next image
         cv::Rect next_bbox = transformed_bbox(frame.cols, frame.rows, transform);
         current_pano_size = current_pano_size | next_bbox;
-        if (true){
+
+        // translate the rectangle so that the (x, y) is (0, 0)
+        // current_pano_size = current_pano_size - current_pano_size.tl();
+
+        if (false){
 	        printf("next_bbox: %d %d %d %d \n", next_bbox.x, next_bbox.y, next_bbox.width, next_bbox.height);
 	        printf("current_pano_size: %d %d %d %d \n", current_pano_size.x, current_pano_size.y, current_pano_size.width, current_pano_size.height);
         }
+    }
+
+    if (true){
+    	printf("final pano size: %d %d %d %d \n", current_pano_size.x, current_pano_size.y, current_pano_size.width, current_pano_size.height);
+    }
+
+    // use the final size to create the final pano
+    Mat pano(current_pano_size.size(), frame.type());
+    // the number of homographies is the index of the frames minus the first one
+    index--;
+
+    // transform each of the frames and save them
+    for (int i = 0; i < index; ++i)
+    {
+    	frame = frames[i];
+    	transform = homographies[i];
 
         // transform the image according to the transformation
+        warpPerspective(frame, trans_img, transform, current_pano_size.size());
 
+        if (false){
+	        imshow("transformed", trans_img);
+	        waitKey(20);
+        }
 
-        // imshow("w", frame);
-        waitKey(20);
+        transformed_frames.push_back(trans_img);
 	}
 
+	// get rid of the vector of original frames, since we only need the 
+	// transformed ones now
+	frames.clear();
+
+	// stitch the panorama with blending
+	// for each output pixel, look at each of the potential input pixels
+	for (int x = 0; x < pano.rows; ++x)
+	{
+		for (int y = 0; y < pano.cols; ++y)
+		{
+			if (blend_type == BLEND_MEDIAN){
+				std::vector<float> pt_vals;
+				for (int frame_index = 0; frame_index < index; ++frame_index){
+					pt_vals.push_back(transformed_frames[frame_index].at<float>(x, y));
+				}
+
+				// calculate the median
+				float median = 0;
+				sort(pt_vals.begin(), pt_vals.end());
+				if (index % 2 == 0){
+					median = (pt_vals[index / 2 - 1] + pt_vals[index / 2]) / 2;
+				} else {
+					median = pt_vals[index / 2];
+				}
+				// set the pano value to the median
+				pano.at<float>(x, y) = median;				
+			} else if (blend_type == BLEND_PURE){
+				pano.at<float>(x, y) = 0;
+				for (int frame_index = 0; frame_index < index; ++frame_index){
+					pano.at<float>(x, y) += transformed_frames[frame_index].at<float>(x, y) / index;
+				}
+			}
+		}
+	}
+
+	imshow("final pano", pano);
 	waitKey(0);
 
 	return 0;
