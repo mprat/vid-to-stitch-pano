@@ -7,7 +7,7 @@ using namespace cv;
 using namespace std;
 
 #define SAVE_FILES 0
-#define NUM_FRAMES_TO_ANALYZE 50
+#define NUM_FRAMES_TO_ANALYZE 100
 
 // types of blending opportunities
 #define BLEND_MEDIAN 1
@@ -139,7 +139,7 @@ int main(int, char**)
 	VideoCapture capture("videos/VID_20150418_151108.mp4");
 	Mat frame, prev_frame;
 	Mat transform = Mat::eye(3, 3, CV_32FC1);
-	float decrease_factor = 0.5;
+	float decrease_factor = 0.3;
 	int blend_type = BLEND_PURE;
 
 	// the panorama that is growing
@@ -175,6 +175,11 @@ int main(int, char**)
             break;
         resize(frame, frame, Size(0, 0), decrease_factor, decrease_factor, INTER_LINEAR);
 
+        if (false){
+        	imshow("original frame", frame);
+        	waitKey(20);
+        }
+
         // save the frame as a file
         if (SAVE_FILES){
 	        char buffer[200];
@@ -204,8 +209,6 @@ int main(int, char**)
         }
 
         homographies.push_back(transform);
-
-        // waitKey(20);
     }
 
     cv::Rect current_pano_size(0, 0, frame_width * decrease_factor, frame_height * decrease_factor);
@@ -220,21 +223,32 @@ int main(int, char**)
 
         // translate the rectangle so that the (x, y) is (0, 0)
         // current_pano_size = current_pano_size - current_pano_size.tl();
+        Mat translation = Mat::eye(3, 3, CV_32FC1);
+        translation.at<float>(0, 2) = -1*current_pano_size.tl().x;
+        translation.at<float>(1, 2) = -1*current_pano_size.tl().y;
+
+        // cout << "old homography: " << homographies[i] << endl;
+
+        homographies[i] = homographies[i] * translation;
 
         if (false){
+        	// cout << "translation matrix: " << translation << endl;
+        	// cout << "new homography: " << homographies[i] << endl;
 	        printf("next_bbox: %d %d %d %d \n", next_bbox.x, next_bbox.y, next_bbox.width, next_bbox.height);
 	        printf("current_pano_size: %d %d %d %d \n", current_pano_size.x, current_pano_size.y, current_pano_size.width, current_pano_size.height);
         }
     }
 
+    // use the final size to create the final pano
+    Mat pano(current_pano_size.size(), frame.type(), cv::Scalar(0, 0, 0));
+    // the number of homographies is the index of the frames minus the first one
+    // index--;
+
     if (true){
+		printf("rows: %d, cols: %d \n", pano.rows, pano.cols);
+		printf("index: %d, frames length: %lu, homographies length: %lu \n", index, frames.size(), homographies.size());
     	printf("final pano size: %d %d %d %d \n", current_pano_size.x, current_pano_size.y, current_pano_size.width, current_pano_size.height);
     }
-
-    // use the final size to create the final pano
-    Mat pano(current_pano_size.size(), frame.type());
-    // the number of homographies is the index of the frames minus the first one
-    index--;
 
     // transform each of the frames and save them
     for (int i = 0; i < index; ++i)
@@ -250,19 +264,31 @@ int main(int, char**)
 	        waitKey(20);
         }
 
-        transformed_frames.push_back(trans_img);
+        transformed_frames.push_back(trans_img.clone());
+	}
+
+	if (true){
+		for (int frame_index = 0; frame_index < index; ++frame_index){
+			imshow("transformed_frame", transformed_frames[frame_index]);
+			waitKey(20);
+		}
 	}
 
 	// get rid of the vector of original frames, since we only need the 
 	// transformed ones now
 	frames.clear();
+	int thresh_ignore = 50;
 
 	// stitch the panorama with blending
 	// for each output pixel, look at each of the potential input pixels
-	for (int x = 0; x < pano.rows; ++x)
+	for (int x = 0; x < pano.rows; ++x) // pano.rows
 	{
-		for (int y = 0; y < pano.cols; ++y)
+		for (int y = 0; y < pano.cols; ++y) // pano.cols
 		{
+			if (false){
+				printf("pano coord x: %d, y: %d \n", x, y);
+			}
+
 			if (blend_type == BLEND_MEDIAN){
 				std::vector<float> pt_vals;
 				for (int frame_index = 0; frame_index < index; ++frame_index){
@@ -278,17 +304,33 @@ int main(int, char**)
 					median = pt_vals[index / 2];
 				}
 				// set the pano value to the median
-				pano.at<float>(x, y) = median;				
+				pano.at<Vec4b>(x, y) = median;				
 			} else if (blend_type == BLEND_PURE){
-				pano.at<float>(x, y) = 0;
+				int num_avg = 0;
+				// for (int frame_index = 0; frame_index < index; ++frame_index){
+				// 	if (abs(transformed_frames[frame_index].at<float>(x, y)) > 0.0001){
+				// 		num_avg++;
+				// 	}
+				// }
+
 				for (int frame_index = 0; frame_index < index; ++frame_index){
-					pano.at<float>(x, y) += transformed_frames[frame_index].at<float>(x, y) / index;
+					if (norm(transformed_frames[frame_index].at<Vec4b>(x, y)) > thresh_ignore){
+						num_avg++;
+					}
 				}
+
+				for (int frame_index = 0; frame_index < index; ++frame_index){
+					if (norm(transformed_frames[frame_index].at<Vec4b>(x, y)) > thresh_ignore){
+						pano.at<Vec4b>(x, y) += transformed_frames[frame_index].at<Vec4b>(x, y);
+					}
+				}
+
+				// pano.at<float>(x, y) += transformed_frames[frame_index].at<float>(x, y);
 			}
 		}
 	}
 
-	imshow("final pano", pano);
+	imshow("finalpano", pano);
 	waitKey(0);
 
 	return 0;
