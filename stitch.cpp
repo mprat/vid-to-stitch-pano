@@ -240,7 +240,8 @@ int main(int, char**)
     }
 
     // use the final size to create the final pano
-    Mat pano(current_pano_size.size(), frame.type(), cv::Scalar(0, 0, 0));
+    Mat pano(current_pano_size.size(), frame.type(), cv::Scalar(0, 0, 0, 0));
+    // cout << "frame type: " << frame.type() << endl;
     // the number of homographies is the index of the frames minus the first one
     // index--;
 
@@ -321,9 +322,18 @@ int main(int, char**)
 
 				for (int frame_index = 0; frame_index < index; ++frame_index){
 					if (norm(transformed_frames[frame_index].at<Vec4b>(x, y)) > thresh_ignore){
-						pano.at<Vec4b>(x, y) += transformed_frames[frame_index].at<Vec4b>(x, y);
+						// cout << "num avg = " << num_avg << " " << transformed_frames[frame_index].at<Vec4b>(x, y) << " " << transformed_frames[frame_index].at<Vec4b>(x, y) / num_avg << endl;
+						pano.at<Vec4b>(x, y) += transformed_frames[frame_index].at<Vec4b>(x, y) / num_avg;
 					}
 				}
+
+				// cout << num_avg << " " << pano.at<Vec4b>(x, y) << endl;
+
+				// for (int frame_index = 0; frame_index < index; ++frame_index){
+				// 	if (norm(transformed_frames[frame_index].at<Vec4b>(x, y)) > thresh_ignore){
+				// 		cout << pano.at<Vec4b>(x, y) << endl;
+				// 	}
+				// }
 
 				// pano.at<float>(x, y) += transformed_frames[frame_index].at<float>(x, y);
 			}
