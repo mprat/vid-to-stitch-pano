@@ -64,12 +64,16 @@ cv::Rect transformed_bbox(int imwidth, int imheight, Mat transform){
 
 Mat get_transformation(Mat img_1, Mat img_2){
 	int minHessian = 400;
-	SurfFeatureDetector detector(minHessian);
+	SiftFeatureDetector detector(minHessian);
 	std::vector<KeyPoint> keypoints_1, keypoints_2;
+
+	// Give a mask in the detector. we choose to ignore areas in the image
+	// with high fuzziness.
 	detector.detect(img_1, keypoints_1);
 	detector.detect(img_2, keypoints_2);
-	SurfDescriptorExtractor extractor;
+	SiftDescriptorExtractor extractor;
 	Mat descriptors_1, descriptors_2;
+
 	extractor.compute(img_1, keypoints_1, descriptors_1);
 	extractor.compute(img_2, keypoints_2, descriptors_2);
 
@@ -77,7 +81,7 @@ Mat get_transformation(Mat img_1, Mat img_2){
 	std::vector<DMatch> matches;
 	matcher.match(descriptors_2, descriptors_1, matches);
 
-	double max_dist = 0; double min_dist = 50;
+	double max_dist = 0; double min_dist = 75;
 
 	//-- Quick calculation of max and min distances between keypoints
 	for( int i = 0; i < descriptors_2.rows; i++ )
