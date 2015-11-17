@@ -33,3 +33,6 @@
 
 # sublime 
 *.sublime-workspace
+
+# OSX symlink files
+*.plist
