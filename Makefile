@@ -6,3 +6,6 @@ LIBS = `pkg-config --libs opencv`
 
 all:
 	g++ $(CXXFLAGS) $(CFLAGS) $(LIBS) stitch.cpp -o stitch.o
+
+debug:
+	g++ -g $(CXXFLAGS) $(CFLAGS) $(LIBS) stitch.cpp -o stitch.o

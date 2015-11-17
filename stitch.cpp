@@ -1,13 +1,14 @@
 #include "opencv2/opencv.hpp"
 #include "opencv2/nonfree/nonfree.hpp"
 #include <iostream>
+#include <cstdlib> 
 #include <stdio.h>
 
 using namespace cv;
 using namespace std;
 
 #define SAVE_FILES 0
-#define NUM_FRAMES_TO_ANALYZE 10000
+// #define NUM_FRAMES_TO_ANALYZE 10000
 
 // types of blending opportunities
 #define BLEND_MEDIAN 1
@@ -76,7 +77,7 @@ Mat get_transformation(Mat img_1, Mat img_2){
 	std::vector<DMatch> matches;
 	matcher.match(descriptors_2, descriptors_1, matches);
 
-	double max_dist = 0; double min_dist = 100;
+	double max_dist = 0; double min_dist = 50;
 
 	//-- Quick calculation of max and min distances between keypoints
 	for( int i = 0; i < descriptors_2.rows; i++ )
@@ -134,8 +135,17 @@ Mat get_transformation(Mat img_1, Mat img_2){
 	return transform;
 }
 
-int main(int, char**)
+int main(int argc, char* argv[])
 {
+	// first argument is the number of frames
+	int num_frames_to_analyze = atoi(argv[1]);
+	int start_index = 0;
+
+	// TODO: get the start index working right
+	// if (argc == 3){
+	// 	start_index = atoi(argv[2]); 
+	// }
+
 	VideoCapture capture("videos/VID_20150418_151108.mp4");
 	Mat frame, prev_frame;
 	Mat transform = Mat::eye(3, 3, CV_32FC1);
@@ -163,7 +173,7 @@ int main(int, char**)
 		cout << "frame height = " << frame_height << endl;
 	}
 
-	while (capture.isOpened() && index < NUM_FRAMES_TO_ANALYZE){
+	while (capture.isOpened() && index < num_frames_to_analyze && index >= start_index){
 		frame_index = capture.get(CV_CAP_PROP_POS_FRAMES);
 		// cout << "frame index = " << frame_index << endl;
 		index++;
@@ -243,7 +253,8 @@ int main(int, char**)
     }
 
     // use the final size to create the final pano
-    Mat pano(current_pano_size.size(), CV_32FC3, cv::Scalar(0, 0, 0, 0));
+    Mat pano(current_pano_size.size(), CV_32FC3, cv::Scalar(0, 0, 0));
+    Mat total_pixels_used(current_pano_size.size(), CV_8UC3, cv::Scalar(0, 0, 0));
     // cout << "frame type: " << frame.type() << endl;
     // the number of homographies is the index of the frames minus the first one
     // index--;
@@ -258,10 +269,6 @@ int main(int, char**)
     for (int i = 0; i < index; ++i)
     {
     	frame = frames[i];
-
-        // frame *= 1./255;
-        // frame.convertTo(frame, CV_32FC3);
-
     	transform = homographies[i];
 
         // transform the image according to the transformation
@@ -272,8 +279,8 @@ int main(int, char**)
 	        waitKey(20);
         }
 
-        // trans_img *= 1./255;
-        // trans_img.convertTo(trans_img, CV_32FC3);
+        trans_img.convertTo(trans_img, CV_32FC3);
+        trans_img *= 1./255;
 
         transformed_frames.push_back(trans_img.clone());
 	}
@@ -281,6 +288,9 @@ int main(int, char**)
 	if (true){
 		for (int frame_index = 0; frame_index < index; ++frame_index){
 			imshow("transformed_frame", transformed_frames[frame_index]);
+			double min, max;
+			minMaxLoc(transformed_frames[frame_index], &min, &max);
+			cout << "transformed_frames[frame_index]: " << "min = " << min << "; max = " << max << "; type = " << transformed_frames[frame_index].type() << endl;
 			waitKey(20);
 		}
 	}
@@ -305,6 +315,7 @@ int main(int, char**)
 		{
 			if (false){
 				printf("pano coord x: %d, y: %d \n", x, y);
+				// printf("final pano size: %d %d %d %d \n", current_pano_size.x, current_pano_size.y, current_pano_size.width, current_pano_size.height);
 			}
 
 			if (blend_type == BLEND_MEDIAN){
@@ -325,30 +336,45 @@ int main(int, char**)
 				pano.at<Vec4f>(x, y) = median;				
 			} else if (blend_type == BLEND_PURE){
 				int num_avg = 0;
-				// for (int frame_index = 0; frame_index < index; ++frame_index){
-				// 	if (abs(transformed_frames[frame_index].at<float>(x, y)) > 0.0001){
-				// 		num_avg++;
-				// 	}
-				// }
-
 				for (int frame_index = 0; frame_index < index; ++frame_index){
-					if (norm(transformed_frames[frame_index].at<Vec4b>(x, y)) > thresh_ignore){
+					Vec3f pixel = transformed_frames[frame_index].at<Vec3f>(x, y);
+					if (pixel[0] + pixel[1] + pixel[2] > 0.0001){
 						num_avg++;
 					}
 				}
 
+				// for (int frame_index = 0; frame_index < index; ++frame_index){
+				// 	// if (norm(transformed_frames[frame_index].at<Vec4b>(x, y)) > thresh_ignore){
+				// 		// num_avg++;
+				// 	total_pixels_used.at<Vec3i>(x, y) += cv::Vec3i(1, 1, 1);
+				// 	// }
+				// }
+
 				for (int frame_index = 0; frame_index < index; ++frame_index){
-					if (norm(transformed_frames[frame_index].at<Vec4b>(x, y)) > thresh_ignore){
-						// cout << "pano.at<Vec4f>(x, y) = " << pano.at<Vec4f>(x, y) << "num avg = " << num_avg << " " << transformed_frames[frame_index].at<Vec4b>(x, y) << " " << transformed_frames[frame_index].at<Vec4b>(x, y) / num_avg << endl;
-						pano.at<Vec4f>(x, y) += transformed_frames[frame_index].at<Vec4b>(x, y) / num_avg;
-					}
+					// if (norm(transformed_frames[frame_index].at<Vec4b>(x, y)) > thresh_ignore){
+					// cout << "pano.at<Vec3f>(x, y) = " << pano.at<Vec3f>(x, y) << endl;
+					// cout << "transformed_frames[frame_index].at<Vec3f>(x, y):" << transformed_frames[frame_index].at<Vec3f>(x, y) << endl;
+					pano.at<Vec3f>(x, y)[0] += transformed_frames[frame_index].at<Vec3f>(x, y)[0];
+					pano.at<Vec3f>(x, y)[1] += transformed_frames[frame_index].at<Vec3f>(x, y)[1];
+					pano.at<Vec3f>(x, y)[2] += transformed_frames[frame_index].at<Vec3f>(x, y)[2];
+					// }
 				}
 
-				// cout << num_avg << " " << pano.at<Vec4f>(x, y) << endl;
+				Vec3f pano_pixel = pano.at<Vec3f>(x, y);
+				if (pano_pixel[0] > 0 && pano_pixel[1] > 0 && pano_pixel[2] > 0){
+					pano.at<Vec3f>(x, y) /= 1.0 * num_avg;
+				}
+
+				// int num_pix = total_pixels_used.at<Vec3f>(x, y)[0];
+				// if (num_pix > 0){
+				// 	pano.at<Vec3f>(x, y) = pano.at<Vec3f>(x, y) / float(num_pix);
+				// }
+
+				// cout << num_avg << " " << pano.at<Vec3f>(x, y) << endl;
 
 				// for (int frame_index = 0; frame_index < index; ++frame_index){
-				// 	if (norm(transformed_frames[frame_index].at<Vec4f>(x, y)) > thresh_ignore){
-				// 		cout << pano.at<Vec4f>(x, y) << endl;
+				// 	if (norm(transformed_frames[frame_index].at<Vec3f>(x, y)) > thresh_ignore){
+				// 		cout << pano.at<Vec3f>(x, y) << endl;
 				// 	}
 				// }
 
@@ -357,16 +383,21 @@ int main(int, char**)
 		}
 	}
 
-	// double min, max;
+	double min, max;
+	minMaxLoc(pano, &min, &max);
+	cout << "pano: " << "min = " << min << "; max = " << max << "; type = " << pano.type() << endl;
+	// pano.convertTo(pano, CV_8UC3);
+	pano /= max;
+	minMaxLoc(pano, &min, &max);
+	cout << "pano: " << "min = " << min << "; max = " << max << "; type = " << pano.type() << endl;
+
+	minMaxLoc(total_pixels_used, &min, &max);
+	cout << "total_pixels_used: " << "min = " << min << "; max = " << max <<"; type = " << total_pixels_used.type() << endl;
+
 	// minMaxLoc(pano, &min, &max);
-
-	// cout << "min = " << min << "; max = " << max << endl;
-	pano.convertTo(pano, CV_8UC3);
-
-	// minMaxLoc(pano, &min, &max);
 	// cout << "min = " << min << "; max = " << max << endl;
 
-
+	// imshow("total_pixels_used", total_pixels_used);
 	imshow("finalpano", pano);
 	waitKey(0);
 
