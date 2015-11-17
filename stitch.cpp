@@ -62,6 +62,10 @@ cv::Rect transformed_bbox(int imwidth, int imheight, Mat transform){
 	return bbox;
 }
 
+Mat get_high_freq_mask(Mat img_1){
+	return Mat();
+}
+
 Mat get_transformation(Mat img_1, Mat img_2){
 	int minHessian = 400;
 	SiftFeatureDetector detector(minHessian);
