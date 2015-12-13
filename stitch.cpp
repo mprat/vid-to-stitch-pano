@@ -71,10 +71,30 @@ Mat get_transformation(Mat img_1, Mat img_2){
 	SiftFeatureDetector detector(minHessian);
 	std::vector<KeyPoint> keypoints_1, keypoints_2;
 
-	// Give a mask in the detector. we choose to ignore areas in the image
+	// Give a mask in the detector. we choose to ignore areas in the image(s)
 	// with high fuzziness.
-	detector.detect(img_1, keypoints_1);
-	detector.detect(img_2, keypoints_2);
+	Mat img_1_lp;
+	Mat img_2_lp;
+	Mat img_1_mask;
+	Mat img_2_mask;
+	GaussianBlur(img_1, img_1_lp, Size(15, 15), 0);
+	GaussianBlur(img_2, img_2_lp, Size(15, 15), 0);
+	img_1_mask = 10.0*(img_1 - img_1_lp);
+	img_2_mask = 10.0*(img_2 - img_2_lp);
+	GaussianBlur(img_1_mask, img_1_mask, Size(7, 7), 0);
+	GaussianBlur(img_2_mask, img_2_mask, Size(7, 7), 0);
+
+	cvtColor(img_1_mask, img_1_mask, CV_BGR2GRAY);
+	cvtColor(img_2_mask, img_2_mask, CV_BGR2GRAY);
+
+	imshow("mask1", img_1_mask);
+	imshow("mask2", img_2_mask);
+
+	// img_1_mask.convertTo(img_1_mask, CV_8UC3);
+	// img_2_mask.convertTo(img_2_mask, CV_8UC3);
+
+	detector.detect(img_1, keypoints_1, img_1_mask);
+	detector.detect(img_2, keypoints_2, img_2_mask);
 	SiftDescriptorExtractor extractor;
 	Mat descriptors_1, descriptors_2;
 
@@ -238,6 +258,10 @@ int main(int argc, char* argv[])
     {
     	transform = homographies[i];
 
+    	// TODO
+    	// if the transform is too "different" from the previous,
+    	// just ignore it (and change to identity)
+
         // calculate bounding box required for next image
         cv::Rect next_bbox = transformed_bbox(frame.cols, frame.rows, transform);
         current_pano_size = current_pano_size | next_bbox;
@@ -278,6 +302,8 @@ int main(int argc, char* argv[])
     {
     	frame = frames[i];
     	transform = homographies[i];
+
+    	// TODO: figure out if keeping the identity is enough
 
         // transform the image according to the transformation
         warpPerspective(frame, trans_img, transform, current_pano_size.size());
