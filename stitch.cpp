@@ -62,10 +62,6 @@ cv::Rect transformed_bbox(int imwidth, int imheight, Mat transform){
 	return bbox;
 }
 
-Mat get_high_freq_mask(Mat img_1){
-	return Mat();
-}
-
 Mat get_transformation(Mat img_1, Mat img_2){
 	int minHessian = 400;
 	SiftFeatureDetector detector(minHessian);
@@ -254,34 +250,50 @@ int main(int argc, char* argv[])
 
     cv::Rect current_pano_size(0, 0, frame_width * decrease_factor, frame_height * decrease_factor);
 
-    for (int i = 0; i < homographies.size(); ++i)
-    {
+    // go through each homography, and if it's too different than the one before
+    // it, turn "off" that homography
+    // everything by default starts "off"
+    std::vector<int> use;
+
+    transform = homographies[0];
+    for (int i = 1; i < homographies.size(); ++i){
     	transform = homographies[i];
 
-    	// TODO
-    	// if the transform is too "different" from the previous,
-    	// just ignore it (and change to identity)
+    	// https://hal.inria.fr/inria-00174036v3/document
+    	// TODO: this is the next piece. SVD decompose image,
+    	// estimate rotation + translation
+    	// make sure neither of them are too far from the previous
+    	use.push_back(i % 2);
+    }
 
-        // calculate bounding box required for next image
-        cv::Rect next_bbox = transformed_bbox(frame.cols, frame.rows, transform);
-        current_pano_size = current_pano_size | next_bbox;
+    // now that we have all the "right" homographies we want,
+    // calculate the size of the final pano
+    for (int i = 0; i < homographies.size(); ++i)
+    {
+    	if (use[i] == 1){
+	    	transform = homographies[i];
 
-        // translate the rectangle so that the (x, y) is (0, 0)
-        // current_pano_size = current_pano_size - current_pano_size.tl();
-        Mat translation = Mat::eye(3, 3, CV_32FC1);
-        translation.at<float>(0, 2) = -1*current_pano_size.tl().x;
-        translation.at<float>(1, 2) = -1*current_pano_size.tl().y;
+	        // calculate bounding box required for next image
+	        cv::Rect next_bbox = transformed_bbox(frame.cols, frame.rows, transform);
+	        current_pano_size = current_pano_size | next_bbox;
 
-        // cout << "old homography: " << homographies[i] << endl;
+	        // translate the rectangle so that the (x, y) is (0, 0)
+	        // current_pano_size = current_pano_size - current_pano_size.tl();
+	        Mat translation = Mat::eye(3, 3, CV_32FC1);
+	        translation.at<float>(0, 2) = -1*current_pano_size.tl().x;
+	        translation.at<float>(1, 2) = -1*current_pano_size.tl().y;
 
-        homographies[i] = homographies[i] * translation;
+	        // cout << "old homography: " << homographies[i] << endl;
 
-        if (false){
-        	// cout << "translation matrix: " << translation << endl;
-        	// cout << "new homography: " << homographies[i] << endl;
-	        printf("next_bbox: %d %d %d %d \n", next_bbox.x, next_bbox.y, next_bbox.width, next_bbox.height);
-	        printf("current_pano_size: %d %d %d %d \n", current_pano_size.x, current_pano_size.y, current_pano_size.width, current_pano_size.height);
-        }
+	        homographies[i] = homographies[i] * translation;
+
+	        if (false){
+	        	// cout << "translation matrix: " << translation << endl;
+	        	// cout << "new homography: " << homographies[i] << endl;
+		        printf("next_bbox: %d %d %d %d \n", next_bbox.x, next_bbox.y, next_bbox.width, next_bbox.height);
+		        printf("current_pano_size: %d %d %d %d \n", current_pano_size.x, current_pano_size.y, current_pano_size.width, current_pano_size.height);
+	        }
+	    }
     }
 
     // use the final size to create the final pano
@@ -298,29 +310,31 @@ int main(int argc, char* argv[])
     }
 
     // transform each of the frames and save them
+    int frames_to_stitch = 0;
     for (int i = 0; i < index; ++i)
     {
-    	frame = frames[i];
-    	transform = homographies[i];
+    	if (use[i] == 1){
+	    	frame = frames[i];
+	    	transform = homographies[i];
 
-    	// TODO: figure out if keeping the identity is enough
+	        // transform the image according to the transformation
+	        warpPerspective(frame, trans_img, transform, current_pano_size.size());
 
-        // transform the image according to the transformation
-        warpPerspective(frame, trans_img, transform, current_pano_size.size());
+	        if (false){
+		        imshow("transformed", trans_img);
+		        waitKey(20);
+	        }
 
-        if (false){
-	        imshow("transformed", trans_img);
-	        waitKey(20);
-        }
+	        trans_img.convertTo(trans_img, CV_32FC3);
+	        trans_img *= 1./255;
 
-        trans_img.convertTo(trans_img, CV_32FC3);
-        trans_img *= 1./255;
-
-        transformed_frames.push_back(trans_img.clone());
+	        transformed_frames.push_back(trans_img.clone());
+	        frames_to_stitch++;
+	    }
 	}
 
 	if (true){
-		for (int frame_index = 0; frame_index < index; ++frame_index){
+		for (int frame_index = 0; frame_index < frames_to_stitch; ++frame_index){
 			imshow("transformed_frame", transformed_frames[frame_index]);
 			double min, max;
 			minMaxLoc(transformed_frames[frame_index], &min, &max);
@@ -354,37 +368,37 @@ int main(int argc, char* argv[])
 
 			if (blend_type == BLEND_MEDIAN){
 				std::vector<float> pt_vals;
-				for (int frame_index = 0; frame_index < index; ++frame_index){
+				for (int frame_index = 0; frame_index < frames_to_stitch; ++frame_index){
 					pt_vals.push_back(transformed_frames[frame_index].at<float>(x, y));
 				}
 
 				// calculate the median
 				float median = 0;
 				sort(pt_vals.begin(), pt_vals.end());
-				if (index % 2 == 0){
-					median = (pt_vals[index / 2 - 1] + pt_vals[index / 2]) / 2;
+				if (frames_to_stitch % 2 == 0){
+					median = (pt_vals[frames_to_stitch / 2 - 1] + pt_vals[frames_to_stitch / 2]) / 2;
 				} else {
-					median = pt_vals[index / 2];
+					median = pt_vals[frames_to_stitch / 2];
 				}
 				// set the pano value to the median
 				pano.at<Vec4f>(x, y) = median;				
 			} else if (blend_type == BLEND_PURE){
 				int num_avg = 0;
-				for (int frame_index = 0; frame_index < index; ++frame_index){
+				for (int frame_index = 0; frame_index < frames_to_stitch; ++frame_index){
 					Vec3f pixel = transformed_frames[frame_index].at<Vec3f>(x, y);
 					if (pixel[0] + pixel[1] + pixel[2] > 0.0001){
 						num_avg++;
 					}
 				}
 
-				// for (int frame_index = 0; frame_index < index; ++frame_index){
+				// for (int frame_index = 0; frame_index < frames_to_stitch; ++frame_index){
 				// 	// if (norm(transformed_frames[frame_index].at<Vec4b>(x, y)) > thresh_ignore){
 				// 		// num_avg++;
 				// 	total_pixels_used.at<Vec3i>(x, y) += cv::Vec3i(1, 1, 1);
 				// 	// }
 				// }
 
-				for (int frame_index = 0; frame_index < index; ++frame_index){
+				for (int frame_index = 0; frame_index < frames_to_stitch; ++frame_index){
 					// if (norm(transformed_frames[frame_index].at<Vec4b>(x, y)) > thresh_ignore){
 					// cout << "pano.at<Vec3f>(x, y) = " << pano.at<Vec3f>(x, y) << endl;
 					// cout << "transformed_frames[frame_index].at<Vec3f>(x, y):" << transformed_frames[frame_index].at<Vec3f>(x, y) << endl;
@@ -406,7 +420,7 @@ int main(int argc, char* argv[])
 
 				// cout << num_avg << " " << pano.at<Vec3f>(x, y) << endl;
 
-				// for (int frame_index = 0; frame_index < index; ++frame_index){
+				// for (int frame_index = 0; frame_index < frames_to_stitch; ++frame_index){
 				// 	if (norm(transformed_frames[frame_index].at<Vec3f>(x, y)) > thresh_ignore){
 				// 		cout << pano.at<Vec3f>(x, y) << endl;
 				// 	}
